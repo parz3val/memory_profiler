@@ -37,8 +37,7 @@ logging.basicConfig()
 
 
 def print_usage():
-    print("Usage: %s <command> <options> <arguments>"
-          % osp.basename(sys.argv[0]))
+    print(f"Usage: {osp.basename(sys.argv[0])} <command> <options> <arguments>")
     print(help_msg)
 
 
@@ -47,7 +46,7 @@ def get_action():
     if len(sys.argv) <= 1:
         print_usage()
         sys.exit(1)
-    if not sys.argv[1] in ALL_ACTIONS:
+    if sys.argv[1] not in ALL_ACTIONS:
         print_usage()
         sys.exit(1)
 
@@ -89,23 +88,22 @@ def get_profile_filenames(args):
                 try:
                     filename = profiles[index]
                 except IndexError:
-                    raise ValueError("Invalid index (non-existing file): %s" % arg)
+                    raise ValueError(f"Invalid index (non-existing file): {arg}")
 
                 if filename not in filenames:
                     filenames.append(filename)
+            elif osp.isfile(arg):
+                if arg not in filenames:
+                    filenames.append(arg)
+            elif osp.isdir(arg):
+                raise ValueError(f"Path {arg} is a directory")
             else:
-                if osp.isfile(arg):
-                    if arg not in filenames:
-                        filenames.append(arg)
-                elif osp.isdir(arg):
-                    raise ValueError("Path %s is a directory" % arg)
-                else:
-                    raise ValueError("File %s not found" % arg)
+                raise ValueError(f"File {arg} not found")
 
     # Add timestamp files, if any
     for filename in reversed(filenames):
         parts = osp.splitext(filename)
-        timestamp_file = parts[0] + "_ts" + parts[1]
+        timestamp_file = f"{parts[0]}_ts{parts[1]}"
         if osp.isfile(timestamp_file) and timestamp_file not in filenames:
             filenames.append(timestamp_file)
 
@@ -180,10 +178,7 @@ def get_cmd_line(args):
     return ' '.join(args)
 
 def find_first_process(name):
-    for i in mp.psutil.process_iter():
-        if name in i.name():
-            return i
-    return None
+    return next((i for i in mp.psutil.process_iter() if name in i.name()), None)
 
 def attach_action():
     argv = sys.argv
@@ -209,11 +204,16 @@ def run_action():
                         help="Attach to an existing process, by process name or by pid")
     parser.add_argument("--timeout", "-t", dest="timeout", action="store", type=int,
                         help="timeout in seconds for the profiling, default new process has no timeout, attach existing is 1 hour")
-    parser.add_argument("--output", "-o", dest="filename",
-                        default="mprofile_%s.dat" % time.strftime("%Y%m%d%H%M%S", time.localtime()),
-                        help="""File to store results in, defaults to 'mprofile_<YYYYMMDDhhmmss>.dat' in the current directory,
+    parser.add_argument(
+        "--output",
+        "-o",
+        dest="filename",
+        default=f'mprofile_{time.strftime("%Y%m%d%H%M%S", time.localtime())}.dat',
+        help="""File to store results in, defaults to 'mprofile_<YYYYMMDDhhmmss>.dat' in the current directory,
 (where <YYYYMMDDhhmmss> is the date-time of the program start).
-This file contains the process memory consumption, in Mb (one value per line).""")
+This file contains the process memory consumption, in Mb (one value per line).""",
+    )
+
     parser.add_argument("--backend", dest="backend", choices=["psutil", "psutil_pss", "psutil_uss", "posix", "tracemalloc"],
                         default="psutil",
                         help="Current supported backends: 'psutil', 'psutil_pss', 'psutil_uss', 'posix', 'tracemalloc'. Defaults to 'psutil'.")
@@ -236,15 +236,19 @@ This file contains the process memory consumption, in Mb (one value per line).""
 
     program = args.program
     if args.attach_existing:
-        print('attaching to existing process, using hint: {}'.format(program[0]))
+        print(f'attaching to existing process, using hint: {program[0]}')
         if program[0].isdigit():
             p = literal_eval(program[0])
             cmd_line = get_cmd_line(program)
         else:
             proc = find_first_process(program[0])
             if proc is None:
-                raise ArgumentError(attach_arg, '\nWhen attaching, program should be process name or pid.\nFailed to find a process using hint: {}'.format(program[0]))
-            
+                raise ArgumentError(
+                    attach_arg,
+                    f'\nWhen attaching, program should be process name or pid.\nFailed to find a process using hint: {program[0]}',
+                )
+
+
             p = proc.pid
             try:
                 cmd_line = proc.cmdline()
@@ -273,11 +277,9 @@ This file contains the process memory consumption, in Mb (one value per line).""
             if args.include_children:
                 extra_args.append("--include-children")
             program[1:1] = extra_args
-            p = subprocess.Popen(program)
         else:
             cmd_line = get_cmd_line(program)
-            p = subprocess.Popen(program)
-
+        p = subprocess.Popen(program)
     with open(mprofile_output, "a") as f:
         f.write("CMDLINE {0}\n".format(cmd_line))
         mp.memory_usage(proc=p, interval=args.interval, timeout=args.timeout, timestamps=True,
@@ -319,13 +321,23 @@ def add_brackets(xloc, yloc, xshift=0, color="r", label=None, options=None):
 
     # Matplotlib workaround: labels starting with _ aren't displayed
     if label[0] == '_':
-        label = ' ' + label
+        label = f' {label}'
     if options.xlim is None or options.xlim[0] <= (xloc[0] - xshift) <= options.xlim[1]:
-        pl.plot(bracket_x + xloc[0] - xshift, bracket_y + yloc[0],
-                "-" + color, linewidth=2, label=label)
+        pl.plot(
+            bracket_x + xloc[0] - xshift,
+            bracket_y + yloc[0],
+            f"-{color}",
+            linewidth=2,
+            label=label,
+        )
+
     if options.xlim is None or options.xlim[0] <= (xloc[1] - xshift) <= options.xlim[1]:
-        pl.plot(-bracket_x + xloc[1] - xshift, bracket_y + yloc[1],
-                "-" + color, linewidth=2)
+        pl.plot(
+            -bracket_x + xloc[1] - xshift,
+            bracket_y + yloc[1],
+            f"-{color}",
+            linewidth=2,
+        )
 
         # TODO: use matplotlib.patches.Polygon to draw a colored background for
         # each function.
@@ -357,42 +369,38 @@ def read_mprofile_file(filename):
     timestamp = []
     children  = defaultdict(list)
     cmd_line = None
-    f = open(filename, "r")
-    for l in f:
-        if l == '\n':
-            raise ValueError('Sampling time was too short')
-        field, value = l.split(' ', 1)
-        if field == "MEM":
-            # mem, timestamp
-            values = value.split(' ')
-            mem_usage.append(float(values[0]))
-            timestamp.append(float(values[1]))
+    with open(filename, "r") as f:
+        for l in f:
+            if l == '\n':
+                raise ValueError('Sampling time was too short')
+            field, value = l.split(' ', 1)
+            if field == "MEM":
+                # mem, timestamp
+                values = value.split(' ')
+                mem_usage.append(float(values[0]))
+                timestamp.append(float(values[1]))
 
-        elif field == "FUNC":
-            values = value.split(' ')
-            f_name, mem_start, start, mem_end, end = values[:5]
-            ts = func_ts.get(f_name, [])
-            to_append = [float(start), float(end), float(mem_start), float(mem_end)]
-            if len(values) >= 6:
-                # There is a stack level field
-                stack_level = values[5]
-                to_append.append(int(stack_level))
-            ts.append(to_append)
-            func_ts[f_name] = ts
+            elif field == "FUNC":
+                values = value.split(' ')
+                f_name, mem_start, start, mem_end, end = values[:5]
+                ts = func_ts.get(f_name, [])
+                to_append = [float(start), float(end), float(mem_start), float(mem_end)]
+                if len(values) >= 6:
+                    # There is a stack level field
+                    stack_level = values[5]
+                    to_append.append(int(stack_level))
+                ts.append(to_append)
+                func_ts[f_name] = ts
 
-        elif field == "CHLD":
-            values = value.split(' ')
-            chldnum = values[0]
-            children[chldnum].append(
-                (float(values[1]), float(values[2]))
-            )
+            elif field == "CHLD":
+                values = value.split(' ')
+                chldnum = values[0]
+                children[chldnum].append(
+                    (float(values[1]), float(values[2]))
+                )
 
-        elif field == "CMDLINE":
-            cmd_line = value
-        else:
-            pass
-    f.close()
-
+            elif field == "CMDLINE":
+                cmd_line = value
     return {"mem_usage": mem_usage, "timestamp": timestamp,
             "func_timestamp": func_ts, 'filename': filename,
             'cmd_line': cmd_line, 'children': children}
@@ -441,7 +449,6 @@ def plot_file(filename, index=0, timestamps=True, children=True, options=None):
     max_mem = mem.max()
     max_mem_ind = mem.argmax()
 
-    all_colors = ("c", "y", "g", "r", "b")
     mem_line_colors = ("k", "b", "r", "g", "c", "y", "m")
 
     show_trend_slope = options is not None and hasattr(options, 'slope') and options.slope is True
@@ -458,8 +465,13 @@ def plot_file(filename, index=0, timestamps=True, children=True, options=None):
         # Append slope to label
         mem_line_label = mem_line_label + " slope {0:.5f}".format(mem_trend[0])
 
-    pl.plot(t, mem, "+-" + mem_line_colors[index % len(mem_line_colors)],
-            label=mem_line_label)
+    pl.plot(
+        t,
+        mem,
+        f"+-{mem_line_colors[index % len(mem_line_colors)]}",
+        label=mem_line_label,
+    )
+
 
     if show_trend_slope:
         # Plot the trend line
@@ -487,8 +499,13 @@ def plot_file(filename, index=0, timestamps=True, children=True, options=None):
                 child_mem_trend_label = " slope {0:.5f}".format(cmem_trend[0])
 
             # Plot the line to the figure
-            pl.plot(cts, cmem, "+-" + mem_line_colors[(idx + 1) % len(mem_line_colors)],
-                    label="child {}{}".format(proc, child_mem_trend_label))
+            pl.plot(
+                cts,
+                cmem,
+                f"+-{mem_line_colors[(idx + 1) % len(mem_line_colors)]}",
+                label=f"child {proc}{child_mem_trend_label}",
+            )
+
 
             if show_trend_slope:
                 # Plot the trend line
@@ -505,16 +522,14 @@ def plot_file(filename, index=0, timestamps=True, children=True, options=None):
 
     # plot timestamps, if any
     if len(ts) > 0 and timestamps:
-        func_num = 0
         f_labels = function_labels(ts.keys())
-        for f, exec_ts in ts.items():
+        all_colors = ("c", "y", "g", "r", "b")
+        for func_num, (f, exec_ts) in enumerate(ts.items()):
             for execution in exec_ts:
                 add_brackets(execution[:2], execution[2:], xshift=global_start,
                              color=all_colors[func_num % len(all_colors)],
                              label=f_labels[f]
                                    + " %.3fs" % (execution[1] - execution[0]), options=options)
-            func_num += 1
-
     if timestamps:
         pl.hlines(max_mem,
                   pl.xlim()[0] + 0.001, pl.xlim()[1] - 0.001,
@@ -843,20 +858,16 @@ def filter_mprofile_mem_usage_by_function(prof, func):
         return prof["mem_usage"]
 
     if func not in prof["func_timestamp"]:
-        raise ValueError(str(func) + " was not found.")
+        raise ValueError(f"{str(func)} was not found.")
 
     time_ranges = prof["func_timestamp"][func]
-    filtered_memory = []
-    
-    # The check here could be improved, but it's done in this
-    # inefficient way to make sure we don't miss overlapping
-    # ranges.
-    for mib, ts in zip(prof["mem_usage"], prof["timestamp"]):
-        for rng in time_ranges:
-            if rng[0] <= ts <= rng[1]:
-                filtered_memory.append(mib)
-
-    return filtered_memory
+    return [
+        mib
+        for (mib, ts), rng in itertools.product(
+            zip(prof["mem_usage"], prof["timestamp"]), time_ranges
+        )
+        if rng[0] <= ts <= rng[1]
+    ]
 
 def peak_action():
     desc = """Prints the peak memory used in data file `file.dat` generated
@@ -875,12 +886,12 @@ such file in the current directory."""
         try:
             mem_usage = filter_mprofile_mem_usage_by_function(prof, args.func)
         except ValueError:
-            print("{}\tNaN MiB".format(prof["filename"]))
+            print(f'{prof["filename"]}\tNaN MiB')
             continue
 
         print("{}\t{:.3f} MiB".format(prof["filename"], max(mem_usage)))
         for child, values in prof["children"].items():
-            child_peak = max([ mem_ts[0] for mem_ts in values ])
+            child_peak = max(mem_ts[0] for mem_ts in values)
             print("  Child {}\t\t\t{:.3f} MiB".format(child, child_peak))
         
 
@@ -900,15 +911,15 @@ def get_profiles(args):
         filenames = []
         for prof in args.profiles:
             if osp.exists(prof):
-                if not prof in filenames:
+                if prof not in filenames:
                     filenames.append(prof)
             else:
                 try:
                     n = int(prof)
-                    if not profiles[n] in filenames:
+                    if profiles[n] not in filenames:
                         filenames.append(profiles[n])
                 except ValueError:
-                    print("Input file not found: " + prof)
+                    print(f"Input file not found: {prof}")
     if not len(filenames):
         print("No files found from given input.")
         sys.exit(-1)

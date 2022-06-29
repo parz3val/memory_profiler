@@ -1,10 +1,9 @@
 
 @profile
 def my_func():
-    a = [1] * (10 ** 6)
     b = [2] * (2 * 10 ** 7)
     del b
-    yield a
+    yield [1] * (10 ** 6)
 
 
 @profile
@@ -19,9 +18,7 @@ def test_comprehension():
     del d_comp
 
     def hh(x=1):
-        # Set comprehension
-        s_comp = set(('Z',) * (k<<13) for k in range(x, 19 + 2*x))
-        return s_comp
+        return {('Z',) * (k<<13) for k in range(x, 19 + 2*x)}
 
     val = [range(1, 4), max(1, 4), 42 + len(hh())]
     val = hh() | hh(4)

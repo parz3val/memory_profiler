@@ -80,7 +80,7 @@ class MemitResult(object):
 
     def _repr_pretty_(self, p, cycle):
         msg = str(self)
-        p.text(u'<MemitResult : ' + msg + u'>')
+        p.text(f'<MemitResult : {msg}>')
 
 
 def _get_child_memory(process, meminfo_attr=None, memory_metric=0):
@@ -123,10 +123,7 @@ def _get_memory(pid, backend, timestamps=False, include_children=False, filename
         stat = next(filter(lambda item: str(item).startswith(filename),
                            tracemalloc.take_snapshot().statistics('filename')))
         mem = stat.size / _TWO_20
-        if timestamps:
-            return mem, time.time()
-        else:
-            return mem
+        return (mem, time.time()) if timestamps else mem
 
     def ps_util_tool():
         # .. cross-platform but but requires psutil ..
@@ -138,11 +135,8 @@ def _get_memory(pid, backend, timestamps=False, include_children=False, filename
                 else 'get_memory_info'
             mem = getattr(process, meminfo_attr)()[0] / _TWO_20
             if include_children:
-                mem +=  sum([mem for (pid, mem) in _get_child_memory(process, meminfo_attr)])
-            if timestamps:
-                return mem, time.time()
-            else:
-                return mem
+                mem += sum(mem for (pid, mem) in _get_child_memory(process, meminfo_attr))
+            return (mem, time.time()) if timestamps else mem
         except psutil.AccessDenied:
             pass
             # continue and try to get this from ps
@@ -153,25 +147,31 @@ def _get_memory(pid, backend, timestamps=False, include_children=False, filename
         process = psutil.Process(pid)
         try:
             if not hasattr(process, 'memory_full_info'):
-                raise NotImplementedError("Backend `{}` requires psutil > 4.0.0".format(memory_metric))
+                raise NotImplementedError(f"Backend `{memory_metric}` requires psutil > 4.0.0")
 
             meminfo_attr = 'memory_full_info'
             meminfo = getattr(process, meminfo_attr)()
 
             if not hasattr(meminfo, memory_metric):
                 raise NotImplementedError(
-                    "Metric `{}` not available. For details, see:".format(memory_metric) +
-                    "https://psutil.readthedocs.io/en/latest/index.html?highlight=memory_info#psutil.Process.memory_full_info")
+                    (
+                        f"Metric `{memory_metric}` not available. For details, see:"
+                        + "https://psutil.readthedocs.io/en/latest/index.html?highlight=memory_info#psutil.Process.memory_full_info"
+                    )
+                )
+
             mem = getattr(meminfo, memory_metric) / _TWO_20
 
             if include_children:
-                mem +=  sum([mem for (pid, mem) in _get_child_memory(process, meminfo_attr, memory_metric)])
+                mem += sum(
+                    mem
+                    for (pid, mem) in _get_child_memory(
+                        process, meminfo_attr, memory_metric
+                    )
+                )
 
-            if timestamps:
-                return mem, time.time()
-            else:
-                return mem
-        
+
+            return (mem, time.time()) if timestamps else mem
         except psutil.AccessDenied:
             pass
             # continue and try to get this from ps
@@ -196,15 +196,9 @@ def _get_memory(pid, backend, timestamps=False, include_children=False, filename
         try:
             vsz_index = out[0].split().index(b'RSS')
             mem = float(out[1].split()[vsz_index]) / 1024
-            if timestamps:
-                return mem, time.time()
-            else:
-                return mem
+            return (mem, time.time()) if timestamps else mem
         except:
-            if timestamps:
-                return -1, time.time()
-            else:
-                return -1
+            return (-1, time.time()) if timestamps else -1
 
     if backend == 'tracemalloc' and \
             (filename is None or filename == '<unknown>'):
@@ -333,22 +327,14 @@ def memory_usage(proc=-1, interval=.1, timeout=None, timestamps=False,
     if stream is not None:
         timestamps = True
 
-    if not max_usage:
-        ret = []
-    else:
-        ret = -1
-
+    ret = -1 if max_usage else []
     if timeout is not None:
         max_iter = int(round(timeout / interval))
     elif isinstance(proc, int):
         # external process and no timeout
         max_iter = 1
     else:
-        # for a Python function wait until it finishes
-        max_iter = float('inf')
-        if max_iterations is not None:
-            max_iter = max_iterations
-
+        max_iter = max_iterations if max_iterations is not None else float('inf')
     if callable(proc):
         proc = (proc, (), {})
     if isinstance(proc, (list, tuple)):
@@ -416,9 +402,7 @@ def memory_usage(proc=-1, interval=.1, timeout=None, timestamps=False,
                     # Create a nested list with the child memory
                     if multiprocess:
                         mem_usage = [mem_usage]
-                        for _, chldmem in _get_child_memory(proc.pid):
-                            mem_usage.append(chldmem)
-
+                        mem_usage.extend(chldmem for _, chldmem in _get_child_memory(proc.pid))
                     # Append the memory usage to the return value
                     ret.append(mem_usage)
             else:
@@ -460,9 +444,7 @@ def memory_usage(proc=-1, interval=.1, timeout=None, timestamps=False,
                     # Create a nested list with the child memory
                     if multiprocess:
                         mem_usage = [mem_usage]
-                        for _, chldmem in _get_child_memory(proc):
-                            mem_usage.append(chldmem)
-
+                        mem_usage.extend(chldmem for _, chldmem in _get_child_memory(proc))
                     # Append the memory usage to the return value
                     ret.append(mem_usage)
             else:
@@ -629,7 +611,7 @@ class TimeStamper:
             stream = sys.stdout
 
         for func, timestamps in self.functions.items():
-            function_name = "%s.%s" % (func.__module__, func.__name__)
+            function_name = f"{func.__module__}.{func.__name__}"
             for ts, level in zip(timestamps, self.stack[func]):
                 stream.write("FUNC %s %.4f %.4f %.4f %.4f %d\n" % (
                     (function_name,) + ts[0] + ts[1] + (level,)))
@@ -650,7 +632,7 @@ class CodeMap(dict):
             if filename.endswith((".pyc", ".pyo")):
                 filename = filename[:-1]
             if not os.path.exists(filename):
-                print('ERROR: Could not find file ' + filename)
+                print(f'ERROR: Could not find file {filename}')
                 if filename.startswith(("ipython-input", "<ipython-input")):
                     print(
                         "NOTE: %mprun can only be used on functions defined in"
@@ -752,8 +734,7 @@ class LineProfiler(object):
             @coroutine
             def f(*args, **kwargs):
                 with self._count_ctxmgr():
-                    res = yield from func(*args, **kwargs)
-                    return res
+                    return (yield from func(*args, **kwargs))
         else:
             def f(*args, **kwds):
                 with self._count_ctxmgr():
@@ -854,11 +835,11 @@ def show_results(prof, stream=None, precision=1):
         stream = sys.stdout
     template = '{0:>6} {1:>12} {2:>12}  {3:>10}   {4:<}'
 
-    for (filename, lines) in prof.code_map.items():
-        header = template.format('Line #', 'Mem usage', 'Increment', 'Occurrences',
-                                 'Line Contents')
+    header = template.format('Line #', 'Mem usage', 'Increment', 'Occurrences',
+                             'Line Contents')
 
-        stream.write(u'Filename: ' + filename + '\n\n')
+    for (filename, lines) in prof.code_map.items():
+        stream.write(f'Filename: {filename}' + '\n\n')
         stream.write(header + u'\n')
         stream.write(u'=' * len(header) + '\n')
 
@@ -1009,19 +990,14 @@ class MemoryProfilerMagics(Magics):
             page(output)
         print(message, )
 
-        text_file = opts.T[0]
-        if text_file:
+        if text_file := opts.T[0]:
             with open(text_file, 'w') as pfile:
                 pfile.write(output)
             print('\n*** Profile printout saved to text file %s. %s' % (
                 text_file,
                 message))
 
-        return_value = None
-        if 'r' in opts:
-            return_value = profile
-
-        return return_value
+        return profile if 'r' in opts else None
 
     # a timeit-style %memit magic for IPython
     @line_cell_magic
@@ -1086,13 +1062,13 @@ class MemoryProfilerMagics(Magics):
             setup = stmt
             stmt = cell
 
-        repeat = int(getattr(opts, 'r', 1))
+        repeat = getattr(opts, 'r', 1)
         if repeat < 1:
             repeat == 1
-        timeout = int(getattr(opts, 't', 0))
+        timeout = getattr(opts, 't', 0)
         if timeout <= 0:
             timeout = None
-        interval = float(getattr(opts, 'i', 0.1))
+        interval = getattr(opts, 'i', 0.1)
         include_children = 'c' in opts
         return_result = 'o' in opts
         quiet = 'q' in opts
@@ -1105,10 +1081,8 @@ class MemoryProfilerMagics(Magics):
         _func_exec(setup, self.shell.user_ns)
 
         mem_usage = []
-        counter = 0
         baseline = memory_usage()[0]
-        while counter < repeat:
-            counter += 1
+        for _ in range(repeat):
             tmp = memory_usage((_func_exec, (stmt, self.shell.user_ns)),
                                timeout=timeout, interval=interval,
                                max_usage=True, max_iterations=1,
@@ -1203,7 +1177,6 @@ def choose_backend(new_backend=None):
     setup one of the allowable backends
     """
 
-    _backend = 'no_backend'
     all_backends = [
         ('psutil', True),
         ('psutil_pss', True),
@@ -1211,15 +1184,20 @@ def choose_backend(new_backend=None):
         ('posix', os.name == 'posix'),
         ('tracemalloc', has_tracemalloc),
     ]
-    backends_indices = dict((b[0], i) for i, b in enumerate(all_backends))
+    backends_indices = {b[0]: i for i, b in enumerate(all_backends)}
 
     if new_backend is not None:
         all_backends.insert(0, all_backends.pop(backends_indices[new_backend]))
 
-    for n_backend, is_available in all_backends:
-        if is_available:
-            _backend = n_backend
-            break
+    _backend = next(
+        (
+            n_backend
+            for n_backend, is_available in all_backends
+            if is_available
+        ),
+        'no_backend',
+    )
+
     if _backend != new_backend and new_backend is not None:
         warnings.warn('{0} can not be used, {1} used instead'.format(
             new_backend, _backend))

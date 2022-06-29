@@ -9,8 +9,7 @@ def test_simple():
     import numpy as np
 
     def func():
-        a = np.random.random((size, size))
-        return a
+        return np.random.random((size, size))
 
     rss = memory_usage(proc=func, max_usage=True, backend="psutil")
     uss = memory_usage(proc=func, max_usage=True, backend="psutil_uss")
@@ -108,12 +107,6 @@ def test_multiprocessing_showcase():
             aa = a.copy()
             time.sleep(10)
             return r
-            
-            # r = a[1,1]
-            # # time.sleep(10)
-            # return r
-            
-            pass
 
         start = datetime.datetime.now()
         print("Starting processing: n_jobs={n_jobs} ... ".format(n_jobs=n_jobs), end="")

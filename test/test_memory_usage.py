@@ -22,7 +22,7 @@ def test_max_iterations():
     this_dir = os.path.dirname(os.path.realpath(__file__))
     file = os.path.join(this_dir, 'temp_test_max_iterations_file.txt')
     mem = memory_usage((write_line, (file, ), dict()), max_usage=True, max_iterations=1)
-    n_lines = sum(1 for line in open(file))
+    n_lines = sum(1 for _ in open(file))
     os.remove(file)
     assert n_lines == 1
 
